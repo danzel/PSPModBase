@@ -46,8 +46,3 @@ add_prx_module(PSPModBase
 
 target_compile_options(PSPModBase PRIVATE ${COMMON_CFLAGS} -fpack-struct=16)
 target_link_libraries(PSPModBase PRIVATE pspsystemctrl_user pspkubridge m)
-
-# Enable in-code logging when configured with -DLOG=ON / -DLOG=1
-if(LOG)
-    target_compile_definitions(PSPModBase PRIVATE LOG)
-endif()
