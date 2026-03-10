@@ -35,10 +35,10 @@ jobs:
     - name: Download and setup PSPDEV SDK
       run: |
         # Download the latest PSPDEV SDK
-        wget https://github.com/pspdev/pspdev/releases/latest/download/pspdev-ubuntu-latest.tar.gz
+        wget https://github.com/pspdev/pspdev/releases/download/v20260301/pspdev-ubuntu-latest-x86_64.tar.gz
         
         # Extract to home directory
-        tar -xzf pspdev-ubuntu-latest.tar.gz -C $HOME
+        tar -xzf pspdev-ubuntu-latest-x86_64.tar.gz -C $HOME
         
         # Verify installation
         ls -la $HOME/pspdev/bin/
