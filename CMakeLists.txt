@@ -46,3 +46,18 @@ add_prx_module(PSPModBase
 
 target_compile_options(PSPModBase PRIVATE ${COMMON_CFLAGS} -fpack-struct=16)
 target_link_libraries(PSPModBase PRIVATE pspsystemctrl_user pspkubridge m)
+
+# --------------------------------------------------------------------------
+# MpegHook – user-mode plugin
+# --------------------------------------------------------------------------
+add_prx_module(MpegHook
+    source/MpegHook/main.c
+    source/MpegHook/injector_setup.c
+    source/MpegHook/module_config.c
+    includes/psp/mips.c
+    includes/psp/injector.c
+    source/MpegHook/exports.exp
+)
+
+target_compile_options(MpegHook PRIVATE ${COMMON_CFLAGS} -fpack-struct=16)
+target_link_libraries(MpegHook PRIVATE pspsystemctrl_user pspkubridge)
