@@ -60,4 +60,4 @@ add_prx_module(MpegHook
 )
 
 target_compile_options(MpegHook PRIVATE ${COMMON_CFLAGS} -fpack-struct=16)
-target_link_libraries(MpegHook PRIVATE pspsystemctrl_user pspkubridge)
+target_link_libraries(MpegHook PRIVATE pspsystemctrl_user pspkubridge pspmpeg)
