@@ -30,8 +30,14 @@ int module_start(SceSize args, void *argp)
     }
 
     //Find the call to sceMpegCreate
-    //TODO: This finds another address (0x880404C) correct is 0x89EE1FCmodst, I guess nid resolution doesn't find 'sceMpegCreate' pointer this way
+    //TODO: This finds another address (0x880404C) correct is 0x89EE1FC, I guess nid resolution doesn't find 'sceMpegCreate' pointer this way
     //TODO: PSPLink can hook things, check its code
+    //https://github.com/pspdev/psplinkusb/blob/master/psplink/apihook.c
+    //https://github.com/pspdev/psplinkusb/blob/master/psplink/libs.c
+    //https://github.com/pspdev/kubridge/blob/main/include/kubridge.h
+    //SceModule def https://github.com/pspdev/pspsdk/blob/master/src/kernel/psploadcore.h#L78
+    //Example of modifying a target, should be able to use this to find the address https://github.com/pspdev/pspsdk/blob/master/src/sdk/modulemgr_patches.c
+    //It actually looks like the module we want to get is one that imports the target. injector_setup.c already gets the game module on device. Not sure what to do on PPSSPP though. Maybe call sceKernelFindModuleByName direct?
     //injector.MakeJAL(inst_call_sceMpegCreate, (uintptr_t)sceMpegCreate); 
     for (uintptr_t addr = injector.base_addr; addr < injector.base_addr + injector.base_size; addr += 4)
     {
