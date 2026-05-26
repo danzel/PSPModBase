@@ -80,35 +80,62 @@ uint32_t jalDestination(uint32_t inst)
 #pragma endregion
 
 #pragma region hook helpers
+
+const uint32_t jr_ra = 0x03E00008;
+
 void hook(char* method, HookRecord* record, uintptr_t passthroughMethod, uintptr_t ourMethod)
 {
-    //Find out call to the method
+    sceKernelPrintf("Searching our call for %s\n", method);
+
+    //Usually on PSP the destination is "J method", rarely is it "jr $ra; syscall method".
+    //On PPSSPP it is always(?) "jr $ra; syscall method", so we need to handle both
+
+
+    //Find our call to the method
     for (uintptr_t addr = passthroughMethod; addr < passthroughMethod + 0x100; addr += 4)
     {
         uint32_t inst = *(uint32_t*)(addr);
         if (isJal(inst))
         {
             uint32_t dest = jalDestination(inst);
-            sceKernelPrintf("Our call to %s is 0x%X [0x%lX] -> 0x%lX\n", method, addr, inst, dest);
             record->inst_at_dest = *(uintptr_t*)dest;
+            if (record->inst_at_dest == jr_ra)
+            {
+                sceKernelPrintf("Our call to %s is jr $ra; syscall\n", method);
+                record->inst_at_dest = *(uintptr_t*)(dest + 4);
+            }
+            sceKernelPrintf("Our call to %s is offset 0x%X  instruction 0x%X  dest 0x%X  dest_inst 0x%X\n", method, addr - passthroughMethod, (unsigned int)inst, (unsigned int)dest, (unsigned int)record->inst_at_dest);
             record->inst_call = inst;
             break;
         }
     }
 
+    if (!record->inst_at_dest)
+    {
+        sceKernelPrintf("Failed to find call to %s\n", method);
+        return;
+    }
+
+    sceKernelPrintf("Hooking %s\n", method);
     //Find the call to the method
     for (uintptr_t addr = injector.base_addr; addr < injector.base_addr + injector.base_size; addr += 4)
     {
         uint32_t inst = injector.ReadMemory32(addr);
         if (isJal(inst))
         {
+            //Jump goes within its memory
             uint32_t dest = jalDestination(inst);
-            if (dest >= injector.base_addr && *(uintptr_t*)jalDestination(inst) == record->inst_at_dest)
+            if (dest >= injector.base_addr && dest < injector.base_addr + injector.base_size)
             {
-                record->addr_call = addr;
-                sceKernelPrintf("Found call to %s at 0x%X [0x%lX]\n", method, addr, inst);
-                injector.MakeJAL(addr, ourMethod);
-                break;
+                //Destination matches us, or destination is "jr ra" followed by the instruction
+                uint32_t dest_inst = *(uintptr_t*)dest; 
+                if (dest_inst ==  record->inst_at_dest || (dest_inst == jr_ra && (*(uintptr_t*)(dest + 4) == record->inst_at_dest)))
+                {
+                    record->addr_call = addr;
+                    sceKernelPrintf("Found call to %s at offset 0x%X  instruction 0x%X\n", method, addr - injector.base_addr, (unsigned int)inst);
+                    injector.MakeJAL(addr, ourMethod);
+                    break;
+            }
             }
         }
     }
@@ -122,13 +149,14 @@ int module_start(SceSize args, void *argp)
     if (!FindModulesAndConfigureInjector())
     {
         sceKernelPrintf("Failed to find modules, injector not configured\n");
+        return 0;
     }
 
     hook("sceMpegCreate", &hookMpegCreate, (uintptr_t)passthrough_sceMpegCreate, (uintptr_t)fake_sceMpegCreate);
     hook("sceMpegRingbufferPut", &hookMpegRingbufferPut, (uintptr_t)passthrough_sceMpegRingbufferPut, (uintptr_t)fake_sceMpegRingbufferPut);
     
-    sceKernelDcacheWritebackAll();
-    kuKernelIcacheInvalidateAll();
+    // sceKernelDcacheWritebackAll();
+    // kuKernelIcacheInvalidateAll();
 
     return 0;
 }
@@ -141,8 +169,8 @@ int module_stop(SceSize args, void *argp)
     if (hookMpegRingbufferPut.addr_call)
         injector.WriteMemory32(hookMpegRingbufferPut.addr_call, hookMpegRingbufferPut.inst_call);
 
-    sceKernelDcacheWritebackAll();
-    kuKernelIcacheInvalidateAll();
+    // sceKernelDcacheWritebackAll();
+    // kuKernelIcacheInvalidateAll();
 
     return 0;
 }
