@@ -14,37 +14,84 @@ typedef struct HookRecord
 
 HookRecord hookMpegCreate = {0};
 HookRecord hookMpegRingbufferPut = {0};
+sceMpegRingbufferCB originalRingbufferCallback = NULL;
 
 //https://pspdev.github.io/pspsdk/pspmpeg_8h.html
 
 void dumpRingbuffer(SceMpegRingbuffer* ringbuffer, char* prefix)
 {
-    sceKernelPrintf("Ringbuffer %s\nPackets: %ld  pRead: %ld  pWritePos: %ld  pAvail: %ld  pSize: %ld\ndata: %p  dataUpperBound: %p\n", prefix, ringbuffer->iPackets, ringbuffer->iUnk0, ringbuffer->iUnk1, ringbuffer->iUnk2, ringbuffer->iUnk3, ringbuffer->pData, (ScePVoid)ringbuffer->iUnk4);
+    sceKernelPrintf("Ringbuffer %s\nPackets: %i  pRead: %i  pWritePos: %i  pAvail: %i\n", prefix, (int)ringbuffer->iPackets, (int)ringbuffer->iUnk0, (int)ringbuffer->iUnk1, (int)ringbuffer->iUnk2);
+    sceKernelPrintf("pSize: %i  data: %p  dataUpperBound: %p\n", (int)ringbuffer->iUnk3, ringbuffer->pData, (ScePVoid)ringbuffer->iUnk4);
     //There are other fields
 }
 
+SceInt32 intercept_ringbufferCallback(ScePVoid pData, SceInt32 iNumPackets, ScePVoid pParam)
+{
+    sceKernelPrintf("Ringbuffer callback called with pData=0x%p, iNumPackets=%i, pParam=0x%p\n", pData, (int)iNumPackets, pParam);
+
+    //Call original callback
+    SceInt32 result = originalRingbufferCallback(pData, iNumPackets, pParam);
+
+    if (result > iNumPackets)
+    {
+        sceKernelPrintf("Warning: callback wrote more packets than allowed! iNumPackets=%i, result=%i\n", (int)iNumPackets, (int)result);
+    }
+    else
+    {
+        sceKernelPrintf("Ringbuffer callback returned %i\n", (int)result);
+    }
+
+    return result;
+}
+
+/*
+ldstart MpegHook.prx
+modstun @MpegHook
+
+
+On PPSSPP:
+08:49:896 user_main    I[PRINTF]: HLE\sceKernelMemory.cpp:1035 0=sceKernelPrintf(sceMpegRingbufferPut called with Ringbuffer=0x%p, iNumPackets=%i, iAvailable=%i, freespace=%i
+): "sceMpegRingbufferPut called with Ringbuffer=0x0905f5fc, iNumPackets=128, iAvailable=44, freespace=44"
+08:49:896 user_main    I[PRINTF]: HLE\sceKernelMemory.cpp:1035 0=sceKernelPrintf(Ringbuffer callback called with pData=0x%p, iNumPackets=%i, pParam=0x%p
+): "Ringbuffer callback called with pData=0x099d0640, iNumPackets=44, pParam=0x0905f560"
+08:49:896 user_main    I[PRINTF]: HLE\sceKernelMemory.cpp:1035 0=sceKernelPrintf(Warning: callback wrote more packets than allowed! iNumPackets=%i, result=%i
+): "Warning: callback wrote more packets than allowed! iNumPackets=44, result=56"
+*/
 
 SceInt32 fake_sceMpegCreate(SceMpeg *Mpeg, ScePVoid pData, SceInt32 iSize, SceMpegRingbuffer *Ringbuffer, SceInt32 iFrameWidth, SceInt32 mode, SceInt32 ddrTop)
 {
-    sceKernelPrintf("sceMpegCreate called with Mpeg=0x%p, pData=0x%p, iSize=%li, Ringbuffer=0x%p, iFrameWidth=%li, mode=%li, ddrTop=%li\n", Mpeg, pData, iSize, Ringbuffer, iFrameWidth, mode, ddrTop);
+    sceKernelPrintf("sceMpegCreate called with Mpeg=0x%p, pData=0x%p, iSize=%i, Ringbuffer=0x%p", Mpeg, pData, (int)iSize, Ringbuffer);
+    sceKernelPrintf(", iFrameWidth=%i, mode=%i, ddrTop=%i\n", (int)iFrameWidth, (int)mode, (int)ddrTop);
+    sceKernelPrintf("Ringbuffer callback: 0x%p, Param: 0x%p\n", Ringbuffer->Callback, Ringbuffer->pCBparam);
     dumpRingbuffer(Ringbuffer, "before");
+
+    //Replace callback with our own
+    originalRingbufferCallback = Ringbuffer->Callback;
+    Ringbuffer->Callback = intercept_ringbufferCallback;
 
     SceInt32 result = sceMpegCreate(Mpeg, pData, iSize, Ringbuffer, iFrameWidth, mode, ddrTop);
 
-    sceKernelPrintf("sceMpegCreate returned %ld\n", result);
+    sceKernelPrintf("sceMpegCreate returned %i\n", (int)result);
     dumpRingbuffer(Ringbuffer, "after");
 
     return result;
 }
 SceInt32 fake_sceMpegRingbufferPut(SceMpegRingbuffer* Ringbuffer, SceInt32 iNumPackets, SceInt32 iAvailable)
 {
-    sceKernelPrintf("sceMpegRingbufferPut called with Ringbuffer=0x%p, iNumPackets=%li, iAvailable=%li\n", Ringbuffer, iNumPackets, iAvailable);
-    dumpRingbuffer(Ringbuffer, "before");
+    //TODO: On PSP freespace is always 320, but on PPSSPP it decreases, matching iAvailable. Log each arg and see what they are like
+    sceKernelPrintf("sceMpegRingbufferPut called with Ringbuffer=0x%p, iNumPackets=%i, iAvailable=%i, RBiPackets=%i RBPacketsAvail=%i\n", Ringbuffer, (int)iNumPackets, (int)iAvailable, (int)Ringbuffer->iPackets, (int)Ringbuffer->iUnk2);
+
+    if ((iNumPackets < iAvailable ? iNumPackets : iAvailable) > (Ringbuffer->iPackets - Ringbuffer->iUnk2))
+    {
+        sceKernelPrintf("Warning: trying to put more packets than the ringbuffer can handle! iNumPackets=%i, iAvailable=%i, ringbuffer free space=%i\n", (int)iNumPackets, (int)iAvailable, (int)(Ringbuffer->iPackets - Ringbuffer->iUnk2));
+    }
+
+    // dumpRingbuffer(Ringbuffer, "before");
 
     SceInt32 result = sceMpegRingbufferPut(Ringbuffer, iNumPackets, iAvailable);
 
-    sceKernelPrintf("sceMpegRingbufferPut returned %ld\n", result);
-    dumpRingbuffer(Ringbuffer, "after");
+    sceKernelPrintf("sceMpegRingbufferPut returned %i\n", (int)result);
+    // dumpRingbuffer(Ringbuffer, "after");
 
     return result;
 }
